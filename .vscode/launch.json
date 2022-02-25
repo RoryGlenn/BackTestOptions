@@ -1,0 +1,28 @@
+
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug with Lean CLI",
+            "type": "python",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "/LeanCLI"
+                },
+                {
+                    "localRoot": "C:\\Users\\newco\\Documents\\Repos\\Python\\LeanCLI\\Library",
+                    "remoteRoot": "/Library"
+                }
+            ],
+
+            "debugging": true,
+            "debugging-method": "DebugPy"
+        }
+    ]
+}
