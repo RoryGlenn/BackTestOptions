@@ -3,18 +3,15 @@ from AlgorithmImports import *
 from selection_data import SelectionData
 from pprint import pprint
 
-# Debug with LeanCLI
-# lean backtest "main.py" --debug ptvsd
-
-# https://github.com/QuantConnect/Lean/blob/master/Algorithm.Python/BasicTemplateOptionsAlgorithm.py
+# I did this step while having my conda env activated
+# 1. pip install lean==1.0.78 (this will install the quantconnect api into the conda env)
+# 2. conda activate lean
+# 3. lean backtest main.py --debug ptvsd 
 
 
 # options trading
 # https://www.quantconnect.com/tutorials/api-tutorials/using-options-in-quantconnect
 
-
-# READ THIS WHEN YOU WAKE UP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# https://github.com/QuantConnect/Lean/blob/master/.vscode/readme.md
 
 RESOLUTION = Resolution.Daily
 # RESOLUTION = Resolution.Minute
