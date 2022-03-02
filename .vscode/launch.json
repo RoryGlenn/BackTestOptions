@@ -22,7 +22,7 @@
             ],
 
             "debugging": true,
-            "debugging-method": "DebugPy"
+            "debugging-method": "ptvsd"
         }
     ]
 }
