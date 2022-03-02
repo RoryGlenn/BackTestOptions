@@ -1,4 +1,5 @@
 
+from datetime import timedelta
 from AlgorithmImports import *
 # from pprint import pprint
 # from datetime import timedelta
@@ -6,42 +7,41 @@ from AlgorithmImports import *
 # lean backtest single_option_trade.py --debug ptvsd 
 
 
-RESOLUTION = Resolution.Minute
-SMA_VALUE = 50 # 50 days
 
-### <summary>
-### This example demonstrates how to add options for a given underlying equity security.
-### It also shows how you can prefilter contracts easily based on strikes and expirations, and how you
-### can inspect the option chain to pick a specific option contract to trade.
-### </summary>
-### <meta name="tag" content="using data" />
-### <meta name="tag" content="options" />
-### <meta name="tag" content="filter selection" />
 class SingleOptionTrade(QCAlgorithm):
     def Initialize(self):
-        self.SetStartDate(2014, 6, 1)
-        self.SetEndDate(2021, 1, 1)
+        
+        RESOLUTION = Resolution.Minute
+        SMA_VALUE = 19500 # Taking only open market hours into consideration (9:30am-4:00pm), 19,500 is how many minutes are in 50 days.
+        
+        self.SetStartDate(2013, 4, 1)
+        self.SetEndDate(2014, 12, 1)
         self.SetCash(100000)
         
-        self.symbol = 'AAPL'
-        spy_symbol = self.AddEquity(ticker='SPY', resolution=RESOLUTION, market=Market.USA).Symbol
-        self.SPY_SMA = self.SMA(symbol=spy_symbol, period=50, resolution=Resolution.Daily)
+        self.AddEquity(ticker='SPY', resolution=RESOLUTION, market=Market.USA)
+        self.AddEquity(ticker='AAPL', resolution=RESOLUTION, market=Market.USA)
+        self.AddOption('AAPL', Resolution.Minute, Market.USA)
+        
+        self.spy:     Equity              = self.AddEquity(ticker='SPY', resolution=Resolution.Minute, market=Market.USA)
+        # self.spy_sma: SimpleMovingAverage = self.SMA(symbol=self.spy.Symbol, period=50, resolution=Resolution.Daily) 
 
-        equity = self.AddEquity(ticker=self.symbol, resolution=RESOLUTION, market=Market.USA)
-        option = self.AddOption(self.symbol, RESOLUTION, market=Market.USA)
+        self.symbol = 'AAPL'
+        equity: Equity = self.AddEquity(ticker=self.symbol, resolution=RESOLUTION, market=Market.USA)
+        option: Option = self.AddOption(self.symbol, RESOLUTION, market=Market.USA)
+        
+        consolidator = TradeBarConsolidator(timedelta(days=1))
+        self.SubscriptionManager.AddConsolidator('SPY', consolidator)
+        self.spy_sma = SimpleMovingAverage('spy_sma', 50)
+        self.RegisterIndicator('SPY', self.spy_sma, consolidator)
         
         # set our strike/expiry filter for this option chain
-        option.SetFilter(lambda u: (u.Strikes(-2, +2)
-                                     # Expiration method accepts TimeSpan objects or integer for days.
-                                     # The following statements yield the same filtering criteria
-                                     .Expiration(0, 180)))
-                                     #.Expiration(TimeSpan.Zero, TimeSpan.FromDays(180))))
+        option.SetFilter(lambda u: (u.Strikes(-2, +2).Expiration(30, 90)))
 
         self.option_symbol = option.Symbol
-        self.AutomaticIndicatorWarmUp = True
+        
         # Most common request; requesting raw prices for universe securities.
         # self.SetSecurityInitializer(lambda x: x.SetDataNormalizationMode(DataNormalizationMode.Raw))
-        self.SetBenchmark(equity.Symbol)
+        # self.SetBenchmark(equity.Symbol)
         return
         
     def get_contracts(self, option_chain: OptionChain, call=False, put=False, itm=False, atm=False, otm=False):
@@ -70,17 +70,20 @@ class SingleOptionTrade(QCAlgorithm):
         return sorted(contract_list, key=lambda contract: contract.Expiry, reverse=True)
         
     def is_long(self):
-        return self.Securities['SPY'].Price > self.SPY_SMA.Current.Value
+        return self.spy_sma.Current.Value > self.spy.Close
 
     def is_short(self):
-        return self.Securities['SPY'].Price < self.SPY_SMA.Current.Value
-        
+        return self.spy_sma.Current.Value < self.spy.Close
         
     def OnData(self, data):
         print(f"Current Time: {self.Time}, Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
         
-        if self.IsWarmingUp:
+        if not self.spy_sma.IsReady:
             return
+        
+        if self.spy_sma.Current.Value != 0:
+            print(f"SMA current: {self.spy_sma.Current.Value}")
+            print(f"SPY Close Price: {self.spy.Close}")
         
         filter_results = [self.option_symbol]
 
@@ -91,13 +94,19 @@ class SingleOptionTrade(QCAlgorithm):
                 if not self.IsMarketOpen(filtered_symbol): continue
                 
                 option_chain: OptionChain = kvp.Value
-                contract_list = self.get_contracts(option_chain, call=True, atm=True)
+                contract_list = []
                 
+                print(f"SPY Close Price: {self.spy.Close}")
+                print(f"SPY SMA:   {self.spy_sma.Current.Value}")                        
+                
+                if self.is_long():
+                    contract_list = self.get_contracts(option_chain, call=True, atm=True)
+                elif self.is_short():
+                    contract_list = self.get_contracts(option_chain, put=True, atm=True)
+                    
                 if len(contract_list) > 0:  
                     symbol = contract_list[0].Symbol # AAPL  141018C00645000
-                    if self.IsMarketOpen(symbol):
-                        self.MarketOrder(symbol, 1)
-                        print(f"Current Time: {self.Time}, Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
+                    self.MarketOrder(symbol, 1)
 
         expiries = [x.Key.ID.Date for x in self.Portfolio if x.Value.Invested and x.Value.Type==SecurityType.Option]
         if len(expiries) > 0:
@@ -108,3 +117,10 @@ class SingleOptionTrade(QCAlgorithm):
         order = self.Transactions.GetOrderById(orderEvent.OrderId)
         print("{0}: {1}: {2}".format(self.Time, order.Type, orderEvent))        
         return
+
+    def OnSecuritiesChanged(self, changes):
+        for security in changes.RemovedSecurities:
+            if security.Invested:
+                self.Liquidate(security.Symbol)
+        # for security in changes.AddedSecurities: # do I need this?
+            # self.SetHoldings(security.Symbol, self.targetPercent)
