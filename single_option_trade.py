@@ -71,14 +71,15 @@ class SingleOptionTrade(QCAlgorithm):
             otm_contract_list = [contract for contract in contract_list if contract.UnderlyingLastPrice - contract.Strike < 0]
             print(len(otm_contract_list))
             contract_list = otm_contract_list
-        return contract_list
+                    
+        # sort the contracts by their expiration dates
+        return sorted(contract_list, key=lambda contract: contract.Expiry, reverse=True)
         
     def is_long(self):
         return self.Securities['SPY'].Price > self.SPY_SMA.Current.Value
 
     def is_short(self):
         return self.Securities['SPY'].Price < self.SPY_SMA.Current.Value
-        
         
         
     def OnData(self, data):
@@ -99,24 +100,25 @@ class SingleOptionTrade(QCAlgorithm):
                 
                 option_chain: OptionChain = kvp.Value
                 
-                contract_list = [contract for contract in option_chain]
+                # contract_list = [contract for contract in option_chain]
                 
-                call_list = [contract for contract in contract_list if contract.Right == OptionRight.Call]
+                # call_list = [contract for contract in contract_list if contract.Right == OptionRight.Call]
                 
-                put_list  = [contract for contract in contract_list if contract.Right == OptionRight.Put]
+                # put_list  = [contract for contract in contract_list if contract.Right == OptionRight.Put]
                 
-                # choose ITM contracts
-                itm_contract_list = [contract for contract in call_list if contract.UnderlyingLastPrice - contract.Strike > 0]
+                # # choose ITM contracts
+                # itm_contract_list = [contract for contract in call_list if contract.UnderlyingLastPrice - contract.Strike > 0]
 
-                # or choose ATM contracts
-                atm_contracts = sorted(call_list, key = lambda contract: abs(option_chain.Underlying.Price - contract.Strike))#[0]
+                # # or choose ATM contracts
+                # atm_contracts = sorted(call_list, key = lambda contract: abs(option_chain.Underlying.Price - contract.Strike))#[0]
                 
-                # or choose OTM contracts
-                otm_contracts = [contract for contract in call_list if contract.UnderlyingLastPrice - contract.Strike < 0]
+                # # or choose OTM contracts
+                # otm_contracts = [contract for contract in call_list if contract.UnderlyingLastPrice - contract.Strike < 0]
                                 
-                # Buy the ATM call option with the furthest expiration date
-                if len(atm_contracts) > 0:  
-                    symbol = atm_contracts[0].Symbol # AAPL  141018C00645000
+                contract_list = self.get_contracts(option_chain, call=True, atm=True)
+                
+                if len(contract_list) > 0:  
+                    symbol = contract_list[0].Symbol # AAPL  141018C00645000
                     if self.IsMarketOpen(symbol):
                         self.MarketOrder(symbol, 1)
                         print(f"Current Time: {self.Time}, Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
