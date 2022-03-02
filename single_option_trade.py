@@ -46,30 +46,24 @@ class SingleOptionTrade(QCAlgorithm):
         
     def get_contracts(self, option_chain: OptionChain, call=False, put=False, itm=False, atm=False, otm=False):
         contract_list = [contract for contract in option_chain]
-        print(len(contract_list))
         
         if call:
             call_list = [contract for contract in contract_list if contract.Right == OptionRight.Call]
-            print(len(call_list))
             contract_list = call_list
         elif put:
             put_list  = [contract for contract in contract_list if contract.Right == OptionRight.Put]
-            print(len(put_list))
             contract_list = put_list
         if itm:
             # choose ITM contracts
             itm_contract_list = [contract for contract in contract_list if contract.UnderlyingLastPrice - contract.Strike > 0]
-            print(len(itm_contract_list))
             contract_list = itm_contract_list
         elif atm:
             # or choose ATM contracts
-            atm_contract_list = sorted(contract_list, key=lambda contract: abs(option_chain.Underlying.Price - contract.Strike))#[0]
-            print(len(atm_contract_list))
+            atm_contract_list = sorted(contract_list, key=lambda contract: abs(option_chain.Underlying.Price - contract.Strike))
             contract_list = atm_contract_list
         elif otm:
             # or choose OTM contracts
             otm_contract_list = [contract for contract in contract_list if contract.UnderlyingLastPrice - contract.Strike < 0]
-            print(len(otm_contract_list))
             contract_list = otm_contract_list
                     
         # sort the contracts by their expiration dates
@@ -88,33 +82,15 @@ class SingleOptionTrade(QCAlgorithm):
         if self.IsWarmingUp:
             return
         
-        # if not self.IsMarketOpen(self.option_symbol):
-        #     return
-        
         filter_results = [self.option_symbol]
 
         for filtered_symbol in filter_results:
             for kvp in data.OptionChains:
-                if kvp.Key != self.option_symbol: continue
-                if kvp.Value is None:             continue
+                if kvp.Key != self.option_symbol:          continue
+                if kvp.Value is None:                      continue
+                if not self.IsMarketOpen(filtered_symbol): continue
                 
                 option_chain: OptionChain = kvp.Value
-                
-                # contract_list = [contract for contract in option_chain]
-                
-                # call_list = [contract for contract in contract_list if contract.Right == OptionRight.Call]
-                
-                # put_list  = [contract for contract in contract_list if contract.Right == OptionRight.Put]
-                
-                # # choose ITM contracts
-                # itm_contract_list = [contract for contract in call_list if contract.UnderlyingLastPrice - contract.Strike > 0]
-
-                # # or choose ATM contracts
-                # atm_contracts = sorted(call_list, key = lambda contract: abs(option_chain.Underlying.Price - contract.Strike))#[0]
-                
-                # # or choose OTM contracts
-                # otm_contracts = [contract for contract in call_list if contract.UnderlyingLastPrice - contract.Strike < 0]
-                                
                 contract_list = self.get_contracts(option_chain, call=True, atm=True)
                 
                 if len(contract_list) > 0:  
