@@ -1,53 +1,77 @@
 
 from AlgorithmImports import *
-from pprint import pprint
-from datetime import timedelta
-from time import asctime
-
-import logging
+# from pprint import pprint
+# from datetime import timedelta
 
 # lean backtest single_option_trade.py --debug ptvsd 
 
 
-RESOLUTION = Resolution.Daily
+RESOLUTION = Resolution.Minute
 SMA_VALUE = 50 # 50 days
 
-
-# Create logging, formatting and file handling variables
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-formatter = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
-current_time = asctime().replace(':','-')
-file_handler = logging.FileHandler(f'single_option_trade {current_time}.log')
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
-
-
-
+### <summary>
+### This example demonstrates how to add options for a given underlying equity security.
+### It also shows how you can prefilter contracts easily based on strikes and expirations, and how you
+### can inspect the option chain to pick a specific option contract to trade.
+### </summary>
+### <meta name="tag" content="using data" />
+### <meta name="tag" content="options" />
+### <meta name="tag" content="filter selection" />
 class SingleOptionTrade(QCAlgorithm):
     def Initialize(self):
-        self.SetStartDate(2008, 1, 1)
-        self.SetEndDate(2022, 1, 1)
-        self.SetCash(100_000)
-        self.SetBenchmark("SPY")
+        self.SetStartDate(2014, 6, 1)
+        self.SetEndDate(2021, 1, 1)
+        self.SetCash(100000)
         
-        self.option_symbol = 'AAPL'
-        self.orders = []
+        self.symbol = 'AAPL'
         spy_symbol = self.AddEquity(ticker='SPY', resolution=RESOLUTION, market=Market.USA).Symbol
         self.SPY_SMA = self.SMA(symbol=spy_symbol, period=50, resolution=Resolution.Daily)
 
-        self.symbol = self.AddEquity(ticker=self.option_symbol, resolution=RESOLUTION, market=Market.USA)
-        self.option = self.AddOption(underlying=self.option_symbol, resolution=RESOLUTION, market=Market.USA)
+        equity = self.AddEquity(ticker=self.symbol, resolution=RESOLUTION, market=Market.USA)
+        option = self.AddOption(self.symbol, RESOLUTION, market=Market.USA)
         
+        # set our strike/expiry filter for this option chain
+        option.SetFilter(lambda u: (u.Strikes(-2, +2)
+                                     # Expiration method accepts TimeSpan objects or integer for days.
+                                     # The following statements yield the same filtering criteria
+                                     .Expiration(0, 180)))
+                                     #.Expiration(TimeSpan.Zero, TimeSpan.FromDays(180))))
+
+        self.option_symbol = option.Symbol
+        self.AutomaticIndicatorWarmUp = True
         # Most common request; requesting raw prices for universe securities.
-        self.SetSecurityInitializer(lambda x: x.SetDataNormalizationMode(DataNormalizationMode.Raw))
-        
-        # filter the contracts with strikes between (market price -1, market price +1)
-        self.option.SetFilter(-20, +20, timedelta(0), timedelta(180))
-        
-        self.AutomaticIndicatorWarmUp = True   
-        self.consolidators = dict()        
+        # self.SetSecurityInitializer(lambda x: x.SetDataNormalizationMode(DataNormalizationMode.Raw))
+        self.SetBenchmark(equity.Symbol)
         return
+        
+    def get_contracts(self, option_chain: OptionChain, call=False, put=False, itm=False, atm=False, otm=False):
+        contract_list = [contract for contract in option_chain]
+        print(len(contract_list))
+        
+        if call:
+            call_list = [contract for contract in contract_list if contract.Right == OptionRight.Call]
+            print(len(call_list))
+            contract_list = call_list
+        elif put:
+            put_list  = [contract for contract in contract_list if contract.Right == OptionRight.Put]
+            print(len(put_list))
+            contract_list = put_list
+        if itm:
+            # choose ITM contracts
+            itm_contract_list = [contract for contract in contract_list if contract.UnderlyingLastPrice - contract.Strike > 0]
+            print(len(itm_contract_list))
+            contract_list = itm_contract_list
+        elif atm:
+            # or choose ATM contracts
+            atm_contract_list = sorted(contract_list, key=lambda contract: abs(option_chain.Underlying.Price - contract.Strike))#[0]
+            print(len(atm_contract_list))
+            contract_list = atm_contract_list
+        elif otm:
+            # or choose OTM contracts
+            otm_contract_list = [contract for contract in contract_list if contract.UnderlyingLastPrice - contract.Strike < 0]
+            print(len(otm_contract_list))
+            contract_list = otm_contract_list
+        return contract_list
         
     def is_long(self):
         return self.Securities['SPY'].Price > self.SPY_SMA.Current.Value
@@ -55,11 +79,7 @@ class SingleOptionTrade(QCAlgorithm):
     def is_short(self):
         return self.Securities['SPY'].Price < self.SPY_SMA.Current.Value
         
-    def options_filter(self, data):
-        contracts = self.OptionChainProvider.GetOptionContractList(self.aapl.Symbol, data.Time)  ## Get list of Options Contracts for a specific time
-        ## Use AddOptionContract() to subscribe the data for specified contract
-        self.AddOptionContract(contracts[0], RESOLUTION)  ## Add the first contract in contracts
-        return contracts[0]
+        
         
     def OnData(self, data):
         print(f"Current Time: {self.Time}, Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
@@ -67,81 +87,46 @@ class SingleOptionTrade(QCAlgorithm):
         if self.IsWarmingUp:
             return
         
+        # if not self.IsMarketOpen(self.option_symbol):
+        #     return
+        
         filter_results = [self.option_symbol]
-    
-        for filtered_symbol in filter_results:            # iterate over filtered stock symbols
-            
-            # if '?'+filtered_symbol == symbol.Value:       # if the filtered symbol matches the symbol in the options chain
-                # if not self.Portfolio[symbol].Invested:   # if we are currently not invested in the option
-                    
-            chain = data.OptionChains.GetValue('?'+filtered_symbol)
-            
-            if chain is None:
-                return
-                        
-            if self.is_long():
-                for contract in chain.Value:
-                    call = [x for x in chain.Value if contract.Right == 0]
+
+        for filtered_symbol in filter_results:
+            for kvp in data.OptionChains:
+                if kvp.Key != self.option_symbol: continue
+                if kvp.Value is None:             continue
                 
-                # contracts = self.OptionChainProvider.
-                self.Option
+                option_chain: OptionChain = kvp.Value
                 
-                for i in contracts:
-                    print(i)
+                contract_list = [contract for contract in option_chain]
+                
+                call_list = [contract for contract in contract_list if contract.Right == OptionRight.Call]
+                
+                put_list  = [contract for contract in contract_list if contract.Right == OptionRight.Put]
                 
                 # choose ITM contracts
-                contracts = [x for x in call if x.UnderlyingLastPrice - x.Strike > 0]
-                
+                itm_contract_list = [contract for contract in call_list if contract.UnderlyingLastPrice - contract.Strike > 0]
+
                 # or choose ATM contracts
-                contracts = sorted(chain, key = lambda x: abs(chain.Underlying.Price - x.Strike))[0]
+                atm_contracts = sorted(call_list, key = lambda contract: abs(option_chain.Underlying.Price - contract.Strike))#[0]
                 
                 # or choose OTM contracts
-                contracts = [x for x in call if call.UnderlyingLastPrice - x.Strike < 0]
-            elif self.is_short():  
-                put = [x for x in chain if chain.Right == 1]
-                    
-            # if found, trade it
-            if len(contracts) > 0:
-                for c in contracts: # c: QuantConnect.Data.Market.OptionChains object
-                    print(c)
-                
-                # trade the contracts with the farthest expiration
-                symbol = contracts[0].Symbol
-                
-                # _contracts = self.OptionChainProvider.GetOptionContractList(symbol, data.Time)  ## Get list of Options Contracts for a specific time
-                _contracts = self.OptionChainProvider.GetOptionContractList(self.option_symbol, data.Time)
-                _option = self.AddOptionContract(symbol, RESOLUTION)
-                
-                for i in _contracts:
-                    print(i)
-                
-                self.morder         = self.MarketOrder(symbol, 1)
-                self.on_open_morder = self.MarketOnOpenOrder(symbol, 1)
-                    
-    # expiries = [x.Key.ID.Date for x in self.Portfolio if x.Value.Invested and x.Value.Type==SecurityType.Option]
-    # if len(expiries) > 0:
-    #     print(expiries)
-        
+                otm_contracts = [contract for contract in call_list if contract.UnderlyingLastPrice - contract.Strike < 0]
+                                
+                # Buy the ATM call option with the furthest expiration date
+                if len(atm_contracts) > 0:  
+                    symbol = atm_contracts[0].Symbol # AAPL  141018C00645000
+                    if self.IsMarketOpen(symbol):
+                        self.MarketOrder(symbol, 1)
+                        print(f"Current Time: {self.Time}, Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
+
+        expiries = [x.Key.ID.Date for x in self.Portfolio if x.Value.Invested and x.Value.Type==SecurityType.Option]
+        if len(expiries) > 0:
+            print(expiries)
         return
     
     def OnOrderEvent(self, orderEvent):
         order = self.Transactions.GetOrderById(orderEvent.OrderId)
         print("{0}: {1}: {2}".format(self.Time, order.Type, orderEvent))        
         return
-        
-    # def OnIVConsolidated(self, sender, bar):
-    #     self.Log(f"Consolidated IV for {bar.Symbol} received at {self.Time} ... O:{bar.Open}; H:{bar.High}; L:{bar.Low}; C:{bar.Close}")
-        
-    # def OnSecuritiesChanged(self, changes):1
-    #     for security in changes.AddedSecurities:
-    #         if security.Type == SecurityType.Option:
-    #             symbol = security.Symbol
-    #             consolidator = BaseDataConsolidator(timedelta(hours=1))
-    #             consolidator.DataConsolidated += self.OnIVConsolidated
-    #             self.consolidators[symbol] = consolidator
-                
-    #     for security in changes.RemovedSecurities:
-    #         if security.Type == SecurityType.Option:
-    #             if security.Symbol in self.consolidators:
-    #                 consolidator = self.consolidators.pop(security.Symbol)
-    #                 consolidator.DataConsolidated -= self.OnIVConsolidated

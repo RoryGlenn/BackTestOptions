@@ -1,0 +1,77 @@
+# QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+# Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from AlgorithmImports import *
+
+### <summary>
+### This example demonstrates how to add options for a given underlying equity security.
+### It also shows how you can prefilter contracts easily based on strikes and expirations, and how you
+### can inspect the option chain to pick a specific option contract to trade.
+### </summary>
+### <meta name="tag" content="using data" />
+### <meta name="tag" content="options" />
+### <meta name="tag" content="filter selection" />
+class BasicTemplateOptionsAlgorithm(QCAlgorithm):
+    UnderlyingTicker = "AAPL"
+
+    def Initialize(self):
+        self.SetStartDate(2014, 6, 1)
+        self.SetEndDate(2021, 1, 1)
+        self.SetCash(100000)
+
+        equity = self.AddEquity(self.UnderlyingTicker)
+        option = self.AddOption(self.UnderlyingTicker)
+        self.option_symbol = option.Symbol
+
+        # set our strike/expiry filter for this option chain
+        option.SetFilter(lambda u: (u.Strikes(-2, +2)
+                                     # Expiration method accepts TimeSpan objects or integer for days.
+                                     # The following statements yield the same filtering criteria
+                                     .Expiration(0, 180)))
+                                     #.Expiration(TimeSpan.Zero, TimeSpan.FromDays(180))))
+
+        # use the underlying equity as the benchmark
+        self.SetBenchmark(equity.Symbol)
+
+    def OnData(self,slice):
+        print(f"Current Time: {self.Time}, Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
+        if self.Portfolio.Invested or not self.IsMarketOpen(self.option_symbol): return
+
+        chain = slice.OptionChains.GetValue(self.option_symbol)
+        if chain is None:
+            return
+
+        # we sort the contracts to find at the money (ATM) contract with farthest expiration
+        contracts = sorted(sorted(sorted(chain, \
+            key = lambda x: abs(chain.Underlying.Price - x.Strike)), \
+            key = lambda x: x.Expiry, reverse=True), \
+            key = lambda x: x.Right, reverse=True)
+
+        # if found, trade it
+        if len(contracts) == 0: return
+        symbol = contracts[0].Symbol # GOOG  160617P00750000
+        print(symbol)
+        self.MarketOrder(symbol, 1)
+        print(f"Current Time: {self.Time}, Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
+        self.MarketOnCloseOrder(symbol, -1)
+        # print(f"Current Time: {self.Time}, Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
+
+        expiries = [x.Key.ID.Date for x in self.Portfolio if x.Value.Invested and x.Value.Type==SecurityType.Option]
+        if len(expiries) > 0:
+            print(expiries)
+        return        
+
+    def OnOrderEvent(self, orderEvent):
+        order = self.Transactions.GetOrderById(orderEvent.OrderId)
+        print("{0}: {1}: {2}".format(self.Time, order.Type, orderEvent))        
+        return
