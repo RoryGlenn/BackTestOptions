@@ -14,16 +14,11 @@ class SingleOptionTrade(QCAlgorithm):
         RESOLUTION = Resolution.Minute
         SMA_VALUE = 19500 # Taking only open market hours into consideration (9:30am-4:00pm), 19,500 is how many minutes are in 50 days.
         
-        self.SetStartDate(2013, 4, 1)
-        self.SetEndDate(2014, 12, 1)
+        self.SetStartDate(2013, 10, 1)
+        self.SetEndDate(2015, 1, 1)
         self.SetCash(100000)
         
-        self.AddEquity(ticker='SPY', resolution=RESOLUTION, market=Market.USA)
-        self.AddEquity(ticker='AAPL', resolution=RESOLUTION, market=Market.USA)
-        self.AddOption('AAPL', Resolution.Minute, Market.USA)
-        
-        self.spy:     Equity              = self.AddEquity(ticker='SPY', resolution=Resolution.Minute, market=Market.USA)
-        # self.spy_sma: SimpleMovingAverage = self.SMA(symbol=self.spy.Symbol, period=50, resolution=Resolution.Daily) 
+        self.spy: Equity = self.AddEquity(ticker='SPY', resolution=Resolution.Minute, market=Market.USA)
 
         self.symbol = 'AAPL'
         equity: Equity = self.AddEquity(ticker=self.symbol, resolution=RESOLUTION, market=Market.USA)
@@ -39,9 +34,14 @@ class SingleOptionTrade(QCAlgorithm):
 
         self.option_symbol = option.Symbol
         
+        self.purchased = []
+        
+        self.is_put = False
+        self.is_call = False
+        
         # Most common request; requesting raw prices for universe securities.
-        # self.SetSecurityInitializer(lambda x: x.SetDataNormalizationMode(DataNormalizationMode.Raw))
-        # self.SetBenchmark(equity.Symbol)
+        self.SetSecurityInitializer(lambda x: x.SetDataNormalizationMode(DataNormalizationMode.Raw))
+        self.SetBenchmark('SPY')
         return
         
     def get_contracts(self, option_chain: OptionChain, call=False, put=False, itm=False, atm=False, otm=False):
@@ -76,51 +76,61 @@ class SingleOptionTrade(QCAlgorithm):
         return self.spy_sma.Current.Value < self.spy.Close
         
     def OnData(self, data):
-        print(f"Current Time: {self.Time}, Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
-        
         if not self.spy_sma.IsReady:
             return
         
-        if self.spy_sma.Current.Value != 0:
-            print(f"SMA current: {self.spy_sma.Current.Value}")
-            print(f"SPY Close Price: {self.spy.Close}")
-        
+        print(f"Current Time: {self.Time}, Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
         filter_results = [self.option_symbol]
 
         for filtered_symbol in filter_results:
             for kvp in data.OptionChains:
-                if kvp.Key != self.option_symbol:          continue
-                if kvp.Value is None:                      continue
-                if not self.IsMarketOpen(filtered_symbol): continue
+                if kvp.Key != self.option_symbol:                      continue
+                if kvp.Value is None:                                  continue
+                if not self.IsMarketOpen(filtered_symbol):             continue
+                if filtered_symbol.Underlying.Value in self.purchased: continue
                 
-                option_chain: OptionChain = kvp.Value
-                contract_list = []
-                
-                print(f"SPY Close Price: {self.spy.Close}")
-                print(f"SPY SMA:   {self.spy_sma.Current.Value}")                        
+                option_chain:  OptionChain = kvp.Value
+                contract_list: list        = []
                 
                 if self.is_long():
                     contract_list = self.get_contracts(option_chain, call=True, atm=True)
+                    self.is_call = True
                 elif self.is_short():
                     contract_list = self.get_contracts(option_chain, put=True, atm=True)
+                    self.is_put = True
                     
                 if len(contract_list) > 0:  
                     symbol = contract_list[0].Symbol # AAPL  141018C00645000
                     self.MarketOrder(symbol, 1)
+                    print(f"Invested in {symbol.Value}")
+                    # self.purchased.append(symbol.Underlying.Value)
 
-        expiries = [x.Key.ID.Date for x in self.Portfolio if x.Value.Invested and x.Value.Type==SecurityType.Option]
-        if len(expiries) > 0:
-            print(expiries)
+        # expiries = [x.Key.ID.Date for x in self.Portfolio if x.Value.Invested and x.Value.Type==SecurityType.Option]
+        # if len(expiries) > 0:
+        #     print(expiries)
         return
     
-    def OnOrderEvent(self, orderEvent):
+    def OnOrderEvent(self, orderEvent: OrderEvent):
         order = self.Transactions.GetOrderById(orderEvent.OrderId)
-        print("{0}: {1}: {2}".format(self.Time, order.Type, orderEvent))        
+        print("{0}: {1}: {2}".format(self.Time, order.Type, orderEvent))
+        
+        if orderEvent.Status == OrderStatus.Submitted:
+            pass
+        # check if our order filled then add it to the list
+        if orderEvent.Status == OrderStatus.Filled:
+            # print(order.Symbol.GetOptionTypeFromUnderlying(order.Symbol.Underlying))
+            # print(order.Status == OrderStatus.Filled)
+            self.purchased.append(orderEvent.Symbol.Underlying.Value)
+        if order.Type == OrderType.OptionExercise:
+            print(f"{orderEvent.Symbol} Profit: {self.Portfolio[orderEvent.Symbol].Profit}, Total Profit: {self.Portfolio.TotalProfit}")
+            
         return
 
     def OnSecuritiesChanged(self, changes):
         for security in changes.RemovedSecurities:
             if security.Invested:
                 self.Liquidate(security.Symbol)
+                if security.Symbol.Underlying.Value in self.purchased:
+                    self.purchased.remove(security.Symbol.Underlying.Value)
         # for security in changes.AddedSecurities: # do I need this?
             # self.SetHoldings(security.Symbol, self.targetPercent)
