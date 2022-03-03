@@ -1,5 +1,6 @@
 {
-  "file-database-last-update": "03/02/2022",
+  "job-organization-id": "8bfd65c935f2e5bffad343e0976324ef",
+  "file-database-last-update": "03/03/2022",
   // this configuration file works by first loading all top-level
   // configuration items and then will load the specified environment
   // on top, this provides a layering affect. environment names can be
@@ -20,9 +21,9 @@
   "messaging-handler": "QuantConnect.Messaging.Messaging",
   "job-queue-handler": "QuantConnect.Queues.JobQueue",
   "api-handler": "QuantConnect.Api.Api",
-  "map-file-provider": "QuantConnect.Data.Auxiliary.LocalDiskMapFileProvider",
-  "factor-file-provider": "QuantConnect.Data.Auxiliary.LocalDiskFactorFileProvider",
-  "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DefaultDataProvider",
+  "map-file-provider": "QuantConnect.Data.Auxiliary.LocalZipMapFileProvider",
+  "factor-file-provider": "QuantConnect.Data.Auxiliary.LocalZipFactorFileProvider",
+  "data-provider": "QuantConnect.Lean.Engine.DataFeeds.ApiDataProvider",
   "alpha-handler": "QuantConnect.Lean.Engine.Alphas.DefaultAlphaHandler",
   "data-channel-provider": "DataChannelProvider",
   "object-store": "QuantConnect.Lean.Engine.Storage.LocalObjectStore",
@@ -193,7 +194,8 @@
   "ftxus-api-key": "",
 
   // specify supported languages when running regression tests
-  "regression-test-languages": [ "CSharp", "Python" ],
+  // "regression-test-languages": [ "CSharp", "Python" ],
+  "regression-test-languages": [ "Python" ],
 
   "environments": {
 
