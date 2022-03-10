@@ -25,7 +25,7 @@ class BasicTemplateOptionsAlgorithm(QCAlgorithm):
     UnderlyingTicker = "AAPL"
 
     def Initialize(self):
-        self.SetStartDate(2014, 6, 1)
+        self.SetStartDate(2000, 6, 1)
         self.SetEndDate(2021, 1, 1)
         self.SetCash(100000)
 

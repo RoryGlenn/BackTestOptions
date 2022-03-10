@@ -4,26 +4,31 @@
 
 from AlgorithmImports import *
 from datetime         import timedelta
-
+from pprint           import pprint
 
 RESOLUTION       = Resolution.Minute
 BENCHMARK_SYMBOL = 'SPY'
 
-# lean data generate -> generate random market data: try this before submitting to steven
 
-# Your organization needs to have an active Security Master subscription to download data from the 'US Equity Options' dataset
-# You can add the subscription at https://www.quantconnect.com/datasets/quantconnect-security-master/pricing
+"""
+TODO
+    1. Try to run the backtest with the random generated data
+    2. Use one of the symbols as a benchmark
+    3. Once this test is complete and WORKS, push it to the cloud and test on quantconnects system where you have access to the real data.
+
+"""
 
 class SingleOptionTrade(QCAlgorithm):
     def Initialize(self) -> None:
-        self.SetStartDate(2013, 12, 16)
+        self.SetStartDate(2013, 10, 1)
         self.SetEndDate(2021, 1, 1)
         self.SetCash(100000)
         self.SetSecurityInitializer(lambda x: x.SetDataNormalizationMode(DataNormalizationMode.Raw))
-        # self.SetBenchmark(self.AddEquity(BENCHMARK_SYMBOL).Symbol)
+        self.SetBenchmark(self.AddEquity(BENCHMARK_SYMBOL).Symbol)
 
         self.purchased          = []
-        self.equity_symbol_list = [BENCHMARK_SYMBOL, 'FB', 'GOOG','FOXA','IBM', 'WM',  'BAC', 'AIG', 'AAPL']
+        # self.equity_symbol_list = [BENCHMARK_SYMBOL, 'FB', 'AAPL', 'FOXA','IBM', 'WM', 'BAC', 'AIG'] #'GOOG']
+        self.equity_symbol_list = [BENCHMARK_SYMBOL, ]
         self.oh_prices          = {equity: {'open': 0, 'high': 0} for equity in self.equity_symbol_list} # construct open/high price dictionary
         self.is_put             = False
         self.is_call            = False
@@ -42,6 +47,12 @@ class SingleOptionTrade(QCAlgorithm):
         self.SubscriptionManager.AddConsolidator(BENCHMARK_SYMBOL, consolidator)
         self.spy_sma = SimpleMovingAverage('spy_sma', 50)
         self.RegisterIndicator(BENCHMARK_SYMBOL, self.spy_sma, consolidator)
+        
+        for equity in self.equities:
+            print(f"Equity: {equity.Symbol.ID}, Start Date: {equity.Symbol.ID.Date}")
+            
+        # for option in self.options:
+        #     print(f"Option: {option.Symbol.ID}, Start Date: {option.Symbol.ID.Date}")
         return
         
     def get_contracts(self, option_chain: OptionChain, call=False, put=False, itm=False, atm=False, otm=False) -> list:
@@ -108,15 +119,14 @@ class SingleOptionTrade(QCAlgorithm):
         if self.Time.hour == 9 and self.Time.minute == 31:
             if data.HasData:
                 for symbol in data.Keys:
-                    
                     if symbol.HasUnderlying:
-                        symbol = symbol.Underlying
+                        continue
                     
                     if data.ContainsKey(symbol.Value):
                         bars: TradeBar = data[symbol.Value]
                         if bars is not None:
                             # self.open_values[symbol.Value] = bars.Open   
-                            self.oh_prices[symbol.Value]['open'] = bars.Open
+                            self.oh_prices[symbol.Value]['open'] = bars.Open # [2013-12-16 09:31:00] SPY open is 170.41
                             
     def set_high_prices(self, data: PythonSlice) -> None:
         """Continuously store the highest price of the day.
@@ -125,7 +135,7 @@ class SingleOptionTrade(QCAlgorithm):
             for symbol in data.Keys:
                 
                 if symbol.HasUnderlying:
-                    symbol: Symbol = symbol.Underlying
+                    continue
 
                 if data.ContainsKey(symbol.Value):
                     bars: TradeBar = data[symbol.Value]
@@ -148,8 +158,8 @@ class SingleOptionTrade(QCAlgorithm):
         if not self.spy_sma.IsReady:
             return
         
-        print(f"[{self.Time}] Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
-        
+        print(f"[{self.Time}] data.Keys length: {len(data.keys())} Portfolio Cash: {self.Portfolio.Cash}, Unrealized Profit: {self.Portfolio.TotalUnrealisedProfit}")
+    
         # if time == open, record the open prices.
         self.set_open_prices(data)
         self.set_high_prices(data)
@@ -157,10 +167,22 @@ class SingleOptionTrade(QCAlgorithm):
         filter_results = self.get_filtered_stocks(data)
 
         if len(filter_results) > 0:
-            print(filter_results)
+            print(f"Filter results: {filter_results}")
             
-        if self.Time.year == 2014 and self.Time.month == 6 and self.Time.day == 4:
+        if self.Time.year == 2014 and self.Time.month == 6 and self.Time.day == 5:
             print("Time to step through the code")
+        
+        if self.Time.hour == 15:
+            pprint(self.oh_prices)
+            
+            if data.HasData:
+                for symbol in data.Keys:
+                    # if data.ContainsKey(symbol.Value):
+                    if symbol.Value == 'IBM':
+                        bars: TradeBar = data[symbol.Value]
+                        if bars is not None:
+                            print(f"data: IBM Open: {bars.Open}")
+                        
 
         for filtered_symbol in filter_results:
             for kvp in data.OptionChains:
